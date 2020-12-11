@@ -1,17 +1,13 @@
-import mysql.connector
-
+import sqlite3
 
 class DBConnect:
 
     def __init__(self):
         try:
-            self.connection = mysql.connector.connect(host='localhost',
-                                                      database='filesystem',
-                                                      user='root',
-                                                      password='my-secret-pw')
+            self.connection = sqlite3.connect('/home/ioana/PycharmProjects/dbconection/filesys.sqlite')
 
             print("msql connected")
-        except mysql.connector.Error as error:
+        except sqlite3.Error as error:
             print("Failed connection \n {}".format(error))
 
     def getDB(self):
