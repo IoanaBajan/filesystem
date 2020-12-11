@@ -1,0 +1,1 @@
+This is a resource file which will be stored in the db
