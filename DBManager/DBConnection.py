@@ -3,7 +3,6 @@ import  logging
 class DBConnect:
 
     def __init__(self):
-        logging.basicConfig(format='%(asctime)s -%(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S')
         try:
             self.connection = sqlite3.connect('/home/ioana/PycharmProjects/dbconection/filesys.sqlite')
             logging.info('Msql connected')

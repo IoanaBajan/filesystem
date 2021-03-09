@@ -1,0 +1,11 @@
+venv
+venv/
+__pycache__/
+.env
+.venv
+env/
+ENV/
+env.bak/
+venv.bak/
+build/
+.idea/
