@@ -1,4 +1,5 @@
 import logging
+
 import globals
 from userCommands import mkdir, rm, ls, cat, create, mv_file, cd, addFile
 
@@ -17,7 +18,6 @@ def main():
         elif command.__contains__('cat '):
            cat(command)
         elif command.__contains__('mv '):
-            logging.debug("rename key")
             mv_file(command)
         elif command.__contains__('rm '):
             rm(command)
