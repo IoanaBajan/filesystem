@@ -1,53 +1,44 @@
-from _datetime import datetime
-import stat
-
-from pip._vendor.distlib.compat import raw_input
-
-from fileManager import showFiles, createBlob, retrieveBLOB, deleteBLOB, createDir, copyFile
-
-print(
-    " 1.ls\n 2.create file\n 3.copy file/move\n 4.find file \n 5.delete file/directory \n 6.create directory")
-
+import logging
+import pandas as pd
+import globals
+from userCommands import mkdir, rm, ls, cat, create, mv_file, pr, cd
 
 def main():
-    print(datetime.now().strftime("%Y%m%d%H%M%S"))
+
+    globals.initialize()
+    # logging.info(globals.current_dir)
     while True:
-        try:
-            input = int(raw_input())
-        except:
-            return
-        if input == 1:
-            showFiles()
-        elif input == 2:
-            print("name the file")
-            fileName = raw_input()
-            print("path where you want to create it")
-            path = raw_input()
-            print("file input")
-            data = raw_input()
-            createBlob(filePath=path, fileName=fileName, input=data)
+        command = input('enter command\n')
 
-        elif input == 3:
-            print("name the file")
-            fileName = raw_input()
-            print("path where you want to create it")
-            path = raw_input()
-            print("file input")
-            data = raw_input()
-            copyFile(filePath=path, fileName=fileName, input=data)
+        if command.__contains__('ls'):
+            ls(command)
 
-        elif input == 4:
-            fileName = raw_input()
-            retrieveBLOB(fileName=fileName)
-        elif input == 5:
-            fileName = raw_input()
-            deleteBLOB(fileName=fileName)
-        elif input == 6:
-            dirname = raw_input()
-            path = raw_input()
-            createDir(dirname, path)
+        elif command.__contains__('nano '):
+            create(command)
+        # shows input of file
+        elif command.__contains__('cat '):
+           cat(command)
+        elif command.__contains__('mv '):
+            logging.debug("rename key")
+            mv_file(command)
+        elif command.__contains__('rm '):
+            rm(command)
+        elif command.__contains__('mkdir '):
+            mkdir(command)
+
+        elif command.__contains__('pr '):
+            pr(command,globals.history['success'].iloc[-1])
+
+        elif command.__contains__('cd '):
+           cd(command)
+        elif command.__contains__('history'):
+           print(globals.history)
+        elif command.__contains__('pwd'):
+            print(globals.current_dir)
         else:
-            return
+            logging.error('not a valid choice')
+            globals.history = globals.history.append({'failure': command, 'success': '-'}, ignore_index=True)
+
 
 if __name__ == "__main__":
     main()
