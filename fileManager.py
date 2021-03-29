@@ -1,11 +1,11 @@
 import datetime
 import time
 
-from DBManager.DBConnection import DBConnect
 import os
 import stat
 import random
 import logging
+import globals
 
 from File import File
 
@@ -17,22 +17,20 @@ def uniqueid():
         yield seed
         seed += 1
 
+
 def convertToBinaryData(filename):
     with open(filename, 'rb') as file:
         binaryData = file.read()
     return binaryData
 
-def convertToFile(data, filename):
-    with open(filename, 'wb') as file:
-        file.write(data)
 
-def createBlob(filePath, fileName, input):
+def createBlob(fileName, input):
     logging.debug('inserting blob into file table')
     logging.info('created file')
 
-    connection = DBConnect()
-    cursor = connection.getDB().cursor()
-    filePath = filePath + fileName
+    cursor = globals.cursor
+
+    filePath = addDirToPath(fileName)
 
     sql_statement = "INSERT INTO value_data(key, block_no, data_block) VALUES(?,?,?)"
     insert_blob_tuple = (filePath, 0, input)
@@ -41,63 +39,56 @@ def createBlob(filePath, fileName, input):
     id = next(uniqueid())
 
     sql_statement = """INSERT INTO meta_data (key,type,inode,uid,gid,mode,acl,attribute,atime,mtime,ctime,size,block_size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"""
-    insert_blob_tuple = (filePath, 'blob', id, os.getuid(), os.getgid(), stat.S_IXUSR, None, None, time.time(),
+    permissions = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
+    insert_blob_tuple = (filePath, 'blob', id, os.getuid(), os.getgid(), permissions, None, None, time.time(),
                          time.time(), time.time(),
                          20, 131072)
     cursor.execute(sql_statement, insert_blob_tuple)
 
-    connection.commit()
 
-def copyFile(filePath, fileName, input):
+def copyFile(fileName, input):
     logging.debug('inserting blob into file table')
-    logging.info('copied file')
 
-    connection = DBConnect()
-    cursor = connection.getDB().cursor()
+    cursor = globals.cursor
 
     sql_statement = "INSERT INTO value_data(key, block_no, data_block) VALUES(?,?,?)"
 
     binFile = convertToBinaryData(input)
-
-    filePath = filePath + fileName
-
-    insert_blob_tuple = (filePath, 0, binFile)
+    insert_blob_tuple = (fileName, 0, binFile)
     cursor.execute(sql_statement, insert_blob_tuple)
 
     id = next(uniqueid())
     logging.debug('id for file ' + fileName + 'is ' + str(id))
 
     sql_statement = """INSERT INTO meta_data (key,type,inode,uid,gid,mode,acl,attribute,atime,mtime,ctime,size,block_size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+    permissions = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
     insert_blob_tuple = (
-        filePath, 'blob', id, os.getuid(), os.getgid(), stat.S_IXUSR, None, None, time.time(),
+        fileName, 'blob', id, os.getuid(), os.getgid(), permissions, None, None, time.time(),
         time.time(), time.time(),
         40, 131072)
     cursor.execute(sql_statement, insert_blob_tuple)
-    connection.commit()
 
-def deleteBLOB(current_dir, fileName):
-    connection = DBConnect()
-    cursor = connection.getDB().cursor()
-    filepath = '%' + current_dir + fileName
 
-    sql_statement = """DELETE FROM meta_data WHERE key like ? LIMIT 1"""
-    cursor.execute(sql_statement, (filepath,))
+def deleteBLOB(fileName):
+    cursor = globals.cursor
 
-    sql_statement = """DELETE FROM value_data WHERE key like ? LIMIT 1"""
-    logging.info('deleted file ' + filepath)
-    cursor.execute(sql_statement, (filepath,))
-    connection.commit()
+    fileName = addDirToPath(fileName)
+
+    sql_statement = """DELETE FROM meta_data WHERE key = ? LIMIT 1"""
+    cursor.execute(sql_statement, (fileName,))
+
+    sql_statement = """DELETE FROM value_data WHERE key = ? LIMIT 1"""
+    logging.info('deleted file ' + fileName)
+    cursor.execute(sql_statement, (fileName,))
+
 
 def retrieveBLOB(fileName):
-    logging.debug('searching file with name ' + fileName)
-    connection = DBConnect()
-    cursor = connection.getDB().cursor()
-    if fileName[-1] == '/':
-        fileName = fileName[:-1]
-    # print(fileName)
+    cursor = globals.cursor
 
+    fileName = addDirToPath(fileName)
+
+    logging.debug('searching file with name ' + fileName)
     sql_statement1 = "SELECT md.key, type, uid, gid,mode, ctime, data_block FROM meta_data md left join value_data vd on md.key = vd.key WHERE md.key LIKE ?"
-    fileName = '%' + fileName
     cursor.execute(sql_statement1, (fileName,))
 
     for key, type, uid, gid, mode, ctime, data_block in cursor.fetchall():
@@ -108,23 +99,23 @@ def retrieveBLOB(fileName):
             logging.debug("file does not exist")
             return None
 
-def createDir(path, dirName):
+
+def createDir(dirName):
     logging.debug('inserting dir in table')
-    connection = DBConnect()
-    cursor = connection.getDB().cursor()
+    cursor = globals.cursor
 
     id = next(uniqueid())
     logging.debug('id for file ' + dirName + 'is ' + str(id))
-    path = path + dirName
+    path = addDirToPath(dirName)
 
     sql_statement = """INSERT INTO meta_data (key,type,inode,uid,gid,mode,acl,attribute,atime,mtime,ctime,size,block_size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"""
-
-    insert_blob_tuple = (path, 'dir', id, os.getuid(), os.getgid(), stat.S_IXUSR, None, None, time.time(),
+    permissions = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
+    insert_blob_tuple = (path, 'dir', id, os.getuid(), os.getgid(), permissions, None, None, time.time(),
                          time.time(), time.time(),
                          0, 131072)
 
     cursor.execute(sql_statement, insert_blob_tuple)
-    connection.commit()
+
 
 def update_entry_filepath(filename, new_path):
     logging.debug('updating entry in table')
@@ -137,51 +128,51 @@ def update_entry_filepath(filename, new_path):
         logging.error("the location from path is not a directory")
         return
 
-    connection = DBConnect()
-    cursor = connection.getDB().cursor()
+    cursor = globals.cursor
+
     old_path = retrieveBLOB(filename)
     if old_path is not None:
         old_path = old_path.getFilePath()
     else:
         logging.error("could not find the file you want to move")
         return
-    sql_statement = """UPDATE meta_data SET key = ? WHERE key like ?"""
-    update_blob_tuple = (new_path + filename, old_path)
+
+    file = filename.split('/')[-1]
+    logging.debug("file name " + file)
+    sql_statement = """UPDATE meta_data SET key = ?, mtime=? WHERE key like ?"""
+    update_blob_tuple = (new_path + '/' + file, time.time(), old_path)
     cursor.execute(sql_statement, update_blob_tuple)
     sql_statement = """UPDATE value_data SET key = ? WHERE key like ?"""
-    update_blob_tuple = (new_path + filename, old_path)
+    update_blob_tuple = (new_path + '/' + file, old_path)
     cursor.execute(sql_statement, update_blob_tuple)
 
-    connection.commit()
 
 def update_entry_fileName(filename, new_filename):
     logging.debug('updating entry in table')
-    connection = DBConnect()
-    cursor = connection.getDB().cursor()
+    cursor = globals.cursor
+
     old_path = retrieveBLOB(filename)
     if old_path is not None:
-        new_path = old_path.key.replace(filename, new_filename)
+        file = filename.split('/')[-1]
+        new_path = old_path.getFilePath().replace(file, new_filename)
     else:
         logging.error("could not find the file you want to rename")
         return
 
-    sql_statement = """UPDATE meta_data SET key = ? WHERE key like ?"""
-    update_blob_tuple = (new_path, old_path.key)
+    sql_statement = """UPDATE meta_data SET key = ?, mtime=? WHERE key like ?"""
+    update_blob_tuple = (new_path, time.time(), old_path.key)
     cursor.execute(sql_statement, update_blob_tuple)
 
     sql_statement = """UPDATE value_data SET key = ? WHERE key like ?"""
     update_blob_tuple = (new_path, old_path.key)
     cursor.execute(sql_statement, update_blob_tuple)
 
-    connection.commit()
 
 def showFileData(current_dir):
     files = []
-    connection = DBConnect()
-    cursor = connection.getDB().cursor()
     sql_statement = """SELECT md.key, type, uid, gid, mode, ctime, data_block FROM meta_data md left join value_data vd on md.key = vd.key WHERE md.key like ?"""
     current_dir = "%" + current_dir + "%"
-
+    cursor = globals.cursor
     logging.debug("showing all files from " + current_dir)
     cursor.execute(sql_statement, (current_dir,))
 
@@ -190,3 +181,76 @@ def showFileData(current_dir):
         RetrievedFile = File(key, type, uid, gid, mode, time, data_block)
         files.append(RetrievedFile)
     return files
+
+
+def keyAccessed(fileName):
+    cursor = globals.cursor
+
+    fileName = addDirToPath(fileName)
+
+    logging.debug("accessing file " + fileName)
+    sql_statement = """UPDATE meta_data SET atime = ? WHERE key = ?"""
+    update_blob_tuple = (time.time(), fileName)
+    cursor.execute(sql_statement, update_blob_tuple)
+
+
+def verifySubtree(fileName):
+    fileName = addDirToPath(fileName)
+    cursor = globals.cursor
+    fileName += '/%'
+    logging.debug('searching file with name ' + fileName)
+    sql_statement1 = "SELECT key, type, uid, gid,mode, ctime FROM meta_data WHERE key LIKE ?"
+    cursor.execute(sql_statement1, (fileName,))
+
+    nr = 0
+    for key in cursor.fetchall():
+        nr += 1
+    logging.debug("number of files in directory " + str(nr))
+    return nr
+
+
+def addDirToPath(fileName):
+    if not fileName.__contains__(globals.current_dir):
+        if globals.current_dir[-1] == '/' or fileName[0] == '/':
+            fileName = globals.current_dir + fileName
+        else:
+            fileName = globals.current_dir + '/' + fileName
+
+    if globals.current_dir != '/' and fileName[-1] == '/':
+        fileName = fileName[:-1]
+    return fileName
+
+
+def updatePermission(fileName, permission):
+    cursor = globals.cursor
+    addDirToPath(fileName)
+
+    logging.debug("updating mode for " + fileName + " " + str(permission))
+    sql_statement = """UPDATE meta_data SET mode = ? WHERE key = ?"""
+    update_blob_tuple = (permission, fileName)
+    cursor.execute(sql_statement, update_blob_tuple)
+
+
+def getPermission(fileName):
+    addDirToPath(fileName)
+    try:
+        mode = retrieveBLOB(fileName).getFileMode()
+
+    except:
+        mode = 0
+        logging.error("could not find file")
+
+    bits = "{0:b}".format(mode)
+    bits = bits[-9:]
+    permision = ""
+    for i in range(0, len(bits)):
+        if bits[i] == '1':
+            if i % 3 == 0:
+                permision += 'r'
+            elif i % 3 == 1:
+                permision += 'w'
+            elif i % 3 == 2:
+                permision += 'x'
+        else:
+            permision += '-'
+    return permision

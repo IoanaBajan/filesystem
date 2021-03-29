@@ -1,5 +1,5 @@
 class File:
-    def __init__(self, key, type, uid, gid, mode, ctime, data_block):
+    def __init__(self, key, type, uid, gid, mode, ctime,data_block):
         self.key = key
         self.type = type
         self.uid = uid
@@ -11,6 +11,12 @@ class File:
     def getFilePath(self):
         return self.key
 
+    def getFileType(self):
+        return self.type
+
+    def getFileMode(self):
+        return self.mode
+
     def getFileData(self):
         return self.data_block
 
@@ -18,4 +24,4 @@ class File:
         self.data_block = data_block
 
     def getFile(self):
-        return self.key, self.type, self.uid, self.gid, self.mode,self.ctime, self.data_block
+        return self.key, self.type, self.uid, self.gid, self.mode, self.ctime
