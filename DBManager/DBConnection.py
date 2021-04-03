@@ -1,15 +1,32 @@
-import sqlite3
 import pyrqlite.dbapi2 as db
-import  logging
+import logging
+
+
 class DBConnect:
 
-    def __init__(self):
+    def __init__(self, port):
         try:
-            self.connection = sqlite3.connect('../filesystem/filesys.sqlite')
-            logging.info('Msql connected')
+            self.connection = db.connect(
+                host='localhost',
+                port=port,
+            )
 
-        except sqlite3.Error as error:
+        except db.Error as error:
             logging.error('Failed connection \n {}'.format(error))
+
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    'CREATE TABLE meta_data(key text,type text,inode integer,uid integer,gid integer,mode integer,' +
+                    'acl text,attribute text,atime integer,mtime integer,ctime integer,size integer,' +
+                    'block_size integer,primary key (key),unique(key));')
+                cursor.execute(
+                    'CREATE TABLE value_data (key text,block_no integer,data_block blob,unique(key, block_no));')
+                cursor.execute('create index meta_index on meta_data (key);' +
+                               'create index value_index on value_data (key, block_no);')
+        except:
+            logging.error('database already exists')
+        logging.info('Msql connected')
 
     def getDB(self):
         return self.connection.cursor()

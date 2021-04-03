@@ -1,3 +1,4 @@
+import binascii
 import logging
 import os
 import stat
@@ -6,10 +7,11 @@ from DBManager.DBConnection import DBConnect
 from fileManager import createDir, deleteBLOB, retrieveBLOB, createBlob, copyFile, update_entry_filepath, \
     update_entry_fileName, showFileData, verifySubtree, keyAccessed, updatePermission, getPermission, addDirToPath
 
-from pip._vendor.distlib.compat import raw_input
+# from pip._vendor.distlib.compat import raw_input
 
 globals.initialize()
-connection = DBConnect()
+port = input('enter port')
+connection = DBConnect(port)
 cursor = connection.getDB()
 globals.cursor = cursor
 
@@ -24,7 +26,8 @@ def ls(command):
         logging.debug('retrieving files from table, brief information')
         files = showFileData(globals.current_dir)
         for CurrentFile in files:
-            print(CurrentFile.key)
+            if CurrentFile.key != globals.current_dir:
+                print(CurrentFile.key)
     elif len(words) == 2:
 
         targetDir = command.split(' ')[1]
@@ -36,7 +39,8 @@ def ls(command):
         else:
             files = showFileData(targetDir)
             for CurrentFile in files:
-                print(CurrentFile.key)
+                if CurrentFile.key != globals.current_dir:
+                    print(CurrentFile.key)
     else:
         logging.error("ls has too many arguments")
         globals.history = globals.history.append({'success': '-', 'failure': command}, ignore_index=True)
@@ -117,7 +121,9 @@ def cat(command):
             if file.getFileType() == 'dir':
                 logging.error("Is a directory")
                 return
-            print(file.getFilePath(), file.getFileData())
+            content = (file.getFileData()).decode('ascii', 'ignore')
+            content = content.lstrip("b'")
+            print(content)
             keyAccessed(fileName)
             connection.commit()
         else:
@@ -141,7 +147,7 @@ def create(command):
         return
 
     logging.info('enter file input')
-    data = raw_input()
+    data = input().encode('ascii', 'ignore')
     createBlob(fileName=fileName, input=data)
     globals.history = globals.history.append({'success': command, 'failure': '-'}, ignore_index=True)
     connection.commit()
@@ -163,6 +169,7 @@ def merge_files(words):
         logging.error("could not find files")
     connection.commit()
 
+
 def mv_file(command):
     # mv file /test/dir1
     logging.debug("updating file")
@@ -176,13 +183,16 @@ def mv_file(command):
         mv_file_name(words)
     globals.history = globals.history.append({'success': command, 'failure': '-'}, ignore_index=True)
 
+
 def mv_file_path(words):
     update_entry_filepath(words[1], words[2])
     connection.commit()
 
+
 def mv_file_name(words):
     update_entry_fileName(words[1], words[2])
     connection.commit()
+
 
 def cd(command):
     if len(command.split(' ')) > 2:
@@ -199,6 +209,7 @@ def cd(command):
 
     else:
         goto_dir = addDirToPath(command.split(' ')[1])
+        logging.debug("go to dir " + goto_dir)
         RetrievedFile = retrieveBLOB(goto_dir)
         if RetrievedFile is None:
             logging.error("this directory does not exist")
@@ -254,6 +265,7 @@ def chmod(command):
     print(owner | group | other)
     updatePermission(words[1], owner | group | other)
     connection.commit()
+
 
 def getMode(i, pos):
     if pos == 1:
