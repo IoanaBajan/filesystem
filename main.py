@@ -1,7 +1,7 @@
 import logging
 
 import globals
-from userCommands import mkdir, rm, ls, cat, create, mv_file, cd, addFile, chmod, getMode
+from userCommands import mkdir, rm, ls, cat, create, mv_file, cd, addFile, chmod, getPermissions
 
 
 def main():
@@ -19,6 +19,8 @@ def main():
             mv_file(command)
         elif command.__contains__('rm '):
             rm(command)
+        elif command.__contains__('rmdir '):
+            rm(command)
         elif command.__contains__('mkdir '):
             mkdir(command)
         elif command.__contains__('add '):
@@ -28,7 +30,7 @@ def main():
         elif command.__contains__('chmod '):
             chmod(command)
         elif command.__contains__('permissions '):
-            getMode(command)
+            getPermissions(command)
         elif command.__contains__('history'):
             print(globals.history)
         elif command.__contains__('pwd'):

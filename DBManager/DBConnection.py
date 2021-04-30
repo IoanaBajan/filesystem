@@ -1,3 +1,6 @@
+import time
+from sqlite3 import IntegrityError
+
 import pyrqlite.dbapi2 as db
 import logging
 
@@ -24,10 +27,17 @@ class DBConnect:
                     'CREATE TABLE value_data (key text,block_no integer,data_block blob,unique(key, block_no));')
                 cursor.execute('create index meta_index on meta_data (key);' +
                                'create index value_index on value_data (key, block_no);')
-        except:
+
+        except :
             logging.error('database already exists')
         logging.info('Msql connected')
-
+        try:
+            sql_statement = "INSERT INTO meta_data (key,type,inode,uid,gid,mode,acl,attribute,atime,mtime,ctime,size,block_size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            insert_blob_tuple = (
+            '/', 'dir', 0, 0, 0, 16832, None, None, time.time(), time.time(), time.time(), 0, 131072)
+            cursor.execute(sql_statement, insert_blob_tuple)
+        except:
+            logging.error("root directory already exists")
     def getDB(self):
         return self.connection.cursor()
 

@@ -1,13 +1,11 @@
-import binascii
 import logging
 import os
 import stat
 import globals
 from DBManager.DBConnection import DBConnect
 from fileManager import createDir, deleteBLOB, retrieveBLOB, createBlob, copyFile, update_entry_filepath, \
-    update_entry_fileName, showFileData, verifySubtree, keyAccessed, updatePermission, getPermission, addDirToPath
-
-# from pip._vendor.distlib.compat import raw_input
+    update_entry_fileName, showFileData, verifySubtree, keyAccessed, updatePermission, getPermission, getPathForSubtree, \
+    fullPath
 
 globals.initialize()
 port = input('enter port')
@@ -26,21 +24,23 @@ def ls(command):
         logging.debug('retrieving files from table, brief information')
         files = showFileData(globals.current_dir)
         for CurrentFile in files:
-            if CurrentFile.key != globals.current_dir:
-                print(CurrentFile.key)
-    elif len(words) == 2:
+            if CurrentFile.getFilePath() != globals.current_dir:
+                dir = CurrentFile.getFilePath().split('/')[-1]
+                print(dir)
 
+    elif len(words) == 2:
         targetDir = command.split(' ')[1]
-        targetDir = addDirToPath(targetDir)
-        if not retrieveBLOB(targetDir):
-            logging.error("No such file or directory")
-            globals.history = globals.history.append({'success': '-', 'failure': command}, ignore_index=True)
-            return
-        else:
+        targetDir = getPathForSubtree(targetDir)
+        try:
             files = showFileData(targetDir)
             for CurrentFile in files:
-                if CurrentFile.key != globals.current_dir:
-                    print(CurrentFile.key)
+                if CurrentFile.getFilePath() != globals.current_dir:
+                    print(CurrentFile.getFilePath().split('/')[-1])
+        except:
+            logging.error("this directory does not exist")
+            globals.history = globals.history.append({'success': '-', 'failure': command}, ignore_index=True)
+            return
+
     else:
         logging.error("ls has too many arguments")
         globals.history = globals.history.append({'success': '-', 'failure': command}, ignore_index=True)
@@ -85,13 +85,15 @@ def rm(command):
     logging.info('the name of the file you want to delete is ' + words[1])
     fileName = words[1]
     try:
+        fileName = getPathForSubtree(fileName)
         fileType = retrieveBLOB(fileName).getFileType()
-        if fileType == 'dir':
+        if fileType == 'dir' and words[0] == 'rmdir':
             rmdir(fileName)
-        elif fileType == 'blob':
+        elif fileType == 'blob' and words[0] == 'rm':
             rmfile(fileName)
+        else:
+            logging.error("wrong command of remove for this type of file")
         globals.history = globals.history.append({'success': command, 'failure': '-'}, ignore_index=True)
-
     except:
         logging.error("could not find file")
 
@@ -115,7 +117,7 @@ def cat(command):
     if len(words) == 5 and words[3] == '>':
         merge_files(words)
     elif len(words) == 2:
-        fileName = words[1]
+        fileName = getPathForSubtree(words[1])
         file = retrieveBLOB(fileName=fileName)
         if file is not None:
             if file.getFileType() == 'dir':
@@ -177,21 +179,20 @@ def mv_file(command):
     if (len(words) != 3):
         logging.error("too many arguments for mv")
         return
-    if words[2].__contains__('/'):
-        mv_file_path(words)
-    else:
-        mv_file_name(words)
+    try:
+        filename = getPathForSubtree(words[2])
+        File = retrieveBLOB(filename)
+        if File.getFileType() == 'dir':
+            update_entry_filepath(words[1], filename)
+            connection.commit()
+
+        else:
+            logging.error("the location is not a directory")
+    except:
+        update_entry_fileName(words[1], words[2])
+        connection.commit()
+
     globals.history = globals.history.append({'success': command, 'failure': '-'}, ignore_index=True)
-
-
-def mv_file_path(words):
-    update_entry_filepath(words[1], words[2])
-    connection.commit()
-
-
-def mv_file_name(words):
-    update_entry_fileName(words[1], words[2])
-    connection.commit()
 
 
 def cd(command):
@@ -199,16 +200,21 @@ def cd(command):
         logging.error("too many arguments for cd function")
         return
 
+    target_dir = command.split(' ')[1]
+
     if command.__contains__(' ..'):
-        dir = globals.current_dir[:-1]
+        dir = globals.current_dir
         dir = dir.split('/')
         dir.pop()
-        for string in dir:
-            globals.current_dir = '/' + string
+        globals.current_dir = '/'.join(dir)
+
+        if globals.current_dir == '':
+            globals.current_dir = '/'
+
         logging.debug("back to " + globals.current_dir)
 
     else:
-        goto_dir = addDirToPath(command.split(' ')[1])
+        goto_dir = getPathForSubtree(target_dir)
         logging.debug("go to dir " + goto_dir)
         RetrievedFile = retrieveBLOB(goto_dir)
         if RetrievedFile is None:
@@ -217,11 +223,10 @@ def cd(command):
         elif RetrievedFile.getFileType() == 'dir':
             globals.current_dir = goto_dir
             logging.info("current directory is " + globals.current_dir)
-
         else:
             logging.debug(goto_dir + " is not a directory")
+        keyAccessed(globals.current_dir)
     globals.history = globals.history.append({'success': command, 'failure': '-'}, ignore_index=True)
-    keyAccessed(globals.current_dir)
     connection.commit()
 
 
@@ -235,7 +240,7 @@ def addFile(command):
     # check if file is in resource if it is call copyFile
     if os.path.exists("../filesystem/resources/" + fileName):
         input = "../filesystem/resources/" + fileName
-        fileName = addDirToPath(fileName)
+        fileName = fullPath(fileName)
         if retrieveBLOB(fileName):
             logging.error("a file with the same name already exists")
             return
@@ -256,14 +261,15 @@ def chmod(command):
     except:
         permission = 0
         logging.error("enter permissions as numbers")
-    if not retrieveBLOB(words[1]):
+    filePath = getPathForSubtree(words[1])
+    if not retrieveBLOB(filePath):
         logging.error("could not find file")
         return
     owner = getMode(permission // 100, 1)
     group = getMode(permission // 10 % 10, 2)
     other = getMode(permission % 10, 3)
     print(owner | group | other)
-    updatePermission(words[1], owner | group | other)
+    updatePermission(filePath, owner | group | other)
     connection.commit()
 
 
@@ -302,10 +308,11 @@ def getMode(i, pos):
         }.get(i, 0)
 
 
-def getMode(command):
+def getPermissions(command):
     words = command.split(' ')
     if len(words) > 3:
-        logging.error('too many arguments for chmod')
+        logging.error('too many arguments for get permissions')
         logging.debug(words[1])
-    permmission = getPermission(words[1])
+    filePath = getPathForSubtree(words[1])
+    permmission = getPermission(filePath)
     print(permmission)

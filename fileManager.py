@@ -30,8 +30,7 @@ def createBlob(fileName, input):
     logging.info('created file')
 
     cursor = globals.cursor
-
-    filePath = addDirToPath(fileName)
+    filePath = fullPath(fileName)
 
     sql_statement = "INSERT INTO value_data(key, block_no, data_block) VALUES(?,?,?)"
     insert_blob_tuple = (filePath, 0, input)
@@ -73,7 +72,7 @@ def copyFile(fileName, input):
 def deleteBLOB(fileName):
     cursor = globals.cursor
 
-    fileName = addDirToPath(fileName)
+    fileName = getPathForSubtree(fileName)
 
     sql_statement = 'DELETE FROM meta_data WHERE key = ?'
     cursor.execute(sql_statement, (fileName,))
@@ -86,20 +85,16 @@ def deleteBLOB(fileName):
 def retrieveBLOB(fileName):
     cursor = globals.cursor
 
-    fileName = addDirToPath(fileName)
-
     logging.debug('searching file with name ' + fileName)
-    sql_statement1 = "SELECT md.key, type, uid, gid,mode, ctime, data_block FROM meta_data md left join value_data vd on md.key = vd.key WHERE md.key LIKE ?"
+    sql_statement1 = "SELECT md.key, type, uid, gid,mode, ctime, data_block FROM meta_data md left join value_data vd on md.key = vd.key WHERE md.key = ?"
     cursor.execute(sql_statement1, (fileName,))
-
-    for key, type, uid, gid, mode, ctime, data_block in cursor.fetchall():
-        if (key):
-            RetrievedFile = File(key, type, uid, gid, mode, ctime, data_block)
-            return RetrievedFile
-        else:
-            logging.debug("file does not exist")
-            return None
-
+    try:
+        record = cursor.fetchone()
+        RetrievedFile = File(record[0], record[1], record[2], record[3], record[4], record[5], record[6])
+        return RetrievedFile
+    except:
+        logging.error("could not find the file or directory")
+        return None
 
 def createDir(dirName):
     logging.debug('inserting dir in table')
@@ -107,7 +102,8 @@ def createDir(dirName):
 
     id = next(uniqueid())
     logging.debug('id for file ' + dirName + 'is ' + str(id))
-    path = addDirToPath(dirName)
+
+    path = fullPath(dirName)
 
     sql_statement = "INSERT INTO meta_data (key,type,inode,uid,gid,mode,acl,attribute,atime,mtime,ctime,size,block_size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
     permissions = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
@@ -121,29 +117,29 @@ def createDir(dirName):
 def update_entry_filepath(filename, new_path):
     logging.debug('updating entry in table')
 
+    cursor = globals.cursor
+    filename = getPathForSubtree(filename)
+    new_path = fullPath(new_path)
+
     Directory = retrieveBLOB(new_path)
     if Directory is None:
         logging.error("the location from the new path does not exist")
         return
-    elif Directory.type != 'dir':
-        logging.error("the location from path is not a directory")
-        return
 
-    cursor = globals.cursor
 
-    old_path = retrieveBLOB(filename)
-    if old_path is not None:
+    try:
+        old_path = retrieveBLOB(filename)
         old_path = old_path.getFilePath()
-    else:
+    except:
         logging.error("could not find the file you want to move")
         return
 
     file = filename.split('/')[-1]
     logging.debug("file name " + file)
-    sql_statement = "UPDATE meta_data SET key = ?, mtime=? WHERE key like ?"
+    sql_statement = "UPDATE meta_data SET key = ?, mtime=? WHERE key = ?"
     update_blob_tuple = (new_path + '/' + file, time.time(), old_path)
     cursor.execute(sql_statement, update_blob_tuple)
-    sql_statement = "UPDATE value_data SET key = ? WHERE key like ?"
+    sql_statement = "UPDATE value_data SET key = ? WHERE key = ?"
     update_blob_tuple = (new_path + '/' + file, old_path)
     cursor.execute(sql_statement, update_blob_tuple)
 
@@ -151,43 +147,67 @@ def update_entry_filepath(filename, new_path):
 def update_entry_fileName(filename, new_filename):
     logging.debug('updating entry in table')
     cursor = globals.cursor
+    filename = getPathForSubtree(filename)
 
-    old_path = retrieveBLOB(filename)
-    if old_path is not None:
-        file = filename.split('/')[-1]
-        new_path = old_path.getFilePath().replace(file, new_filename)
-    else:
+    file = filename.split('/')[-1]
+    try:
+        old_file = retrieveBLOB(filename)
+        new_path = old_file.getFilePath().replace(file, new_filename)
+    except:
         logging.error("could not find the file you want to rename")
         return
 
-    sql_statement = "UPDATE meta_data SET key = ?, mtime=? WHERE key like ?"
-    update_blob_tuple = (new_path, time.time(), old_path.key)
+    sql_statement = "UPDATE meta_data SET key = ?, mtime=? WHERE key = ?"
+    update_blob_tuple = (new_path, time.time(), old_file.getFilePath())
     cursor.execute(sql_statement, update_blob_tuple)
 
-    sql_statement = "UPDATE value_data SET key = ? WHERE key like ?"
-    update_blob_tuple = (new_path, old_path.key)
+    sql_statement = "UPDATE value_data SET key = ? WHERE key = ?"
+    update_blob_tuple = (new_path, old_file.getFilePath())
     cursor.execute(sql_statement, update_blob_tuple)
 
+    if old_file.getFileType() == 'dir':
+        sql_statement = "UPDATE meta_data SET key = REPLACE(key, ?,?), mtime=? WHERE key like ?"
+        filepath = old_file.getFilePath() +"/%"
+        update_blob_tuple = (file,new_filename, time.time(), filepath)
+        cursor.execute(sql_statement, update_blob_tuple)
 
-def showFileData(current_dir):
+        sql_statement = "UPDATE value_data SET key = REPLACE(key, ?,?) WHERE key like ?"
+        filepath = old_file.getFilePath() +"/%"
+        update_blob_tuple = (file,new_filename, filepath)
+        cursor.execute(sql_statement, update_blob_tuple)
+
+
+def showFileData(target_dir):
     files = []
-    sql_statement = "SELECT md.key, type, uid, gid, mode, ctime FROM meta_data md left join value_data vd on md.key = vd.key WHERE md.key like ?"
-    current_dir = "%" + current_dir + "%"
     cursor = globals.cursor
-    logging.debug("showing all files from " + current_dir)
-    cursor.execute(sql_statement, (current_dir,))
+    sql_statement0 = "SELECT type from meta_data WHERE key = ?"
+    cursor.execute(sql_statement0,(target_dir,))
+    type = cursor.fetchone()[0]
+    if type != 'dir':
+        logging.error("cannot list from a non directory")
+        return
+    sql_statement = "SELECT md.key, type, uid, gid, mode, ctime FROM meta_data md left join value_data vd on md.key = vd.key WHERE md.key like ?"
+    if target_dir != '/':
+        target_dir = target_dir + "/%"
+    else:
+        target_dir = target_dir + "%"
+
+    logging.debug("showing all files from " + target_dir)
+    cursor.execute(sql_statement, (target_dir,))
+    size = len(target_dir.split('/'))
 
     for key, type, uid, gid, mode, ctime in cursor.fetchall():
-        time = datetime.datetime.fromtimestamp(ctime).strftime("%d %B %I:%M")
-        RetrievedFile = File(key, type, uid, gid, mode, time, " ")
-        files.append(RetrievedFile)
+        if len(key.split('/')) == size:
+            time = datetime.datetime.fromtimestamp(ctime).strftime("%d %B %I:%M")
+            RetrievedFile = File(key, type, uid, gid, mode, time, " ")
+            files.append(RetrievedFile)
     return files
 
 
 def keyAccessed(fileName):
     cursor = globals.cursor
 
-    fileName = addDirToPath(fileName)
+    fileName = getPathForSubtree(fileName)
 
     logging.debug("accessing file " + fileName)
     sql_statement = "UPDATE meta_data SET atime = ? WHERE key = ?"
@@ -196,21 +216,43 @@ def keyAccessed(fileName):
 
 
 def verifySubtree(fileName):
-    fileName = addDirToPath(fileName)
+    fileName = getPathForSubtree(fileName)
     cursor = globals.cursor
     fileName += '/%'
     logging.debug('searching file with name ' + fileName)
     sql_statement1 = "SELECT key, type, uid, gid,mode, ctime FROM meta_data WHERE key LIKE ?"
     cursor.execute(sql_statement1, (fileName,))
 
-    nr = 0
-    for key in cursor.fetchall():
-        nr += 1
+    nr = cursor.rowcount
+    # for key in cursor.fetchall():
+    #     nr += 1
     logging.debug("number of files in directory " + str(nr))
     return nr
 
+def getPathForSubtree(fileName):
+    """
+    Return full path of given file, adding the current directory's path.
 
-def addDirToPath(fileName):
+    If the path does not exist, returns the filepath it was given.
+    Adds slash at the beginning, removes the one at the end for consistency (it's also the way paths are stored in db)
+    """
+
+    if fileName[0] != '/':
+        fileName = '/' + fileName
+    if not fileName.__contains__(globals.current_dir):
+        if globals.current_dir[-1] == '/' or fileName[0] == '/':
+            file = globals.current_dir + fileName
+        else:
+            file = globals.current_dir + '/' + fileName
+
+        if retrieveBLOB(file) is not None:
+            fileName = file
+
+    if len(fileName)!=1 and fileName[-1] == '/':
+        fileName = fileName[:-1]
+    return fileName
+
+def fullPath(fileName):
     if fileName[0] != '/':
         fileName = '/' + fileName
     if not fileName.__contains__(globals.current_dir):
@@ -218,15 +260,12 @@ def addDirToPath(fileName):
             fileName = globals.current_dir + fileName
         else:
             fileName = globals.current_dir + '/' + fileName
-
-    if globals.current_dir != '/' and fileName[-1] == '/':
-        fileName = fileName[:-1]
+    logging.debug("path of the new file: " + fileName)
     return fileName
-
 
 def updatePermission(fileName, permission):
     cursor = globals.cursor
-    addDirToPath(fileName)
+    getPathForSubtree(fileName)
 
     logging.debug("updating mode for " + fileName + " " + str(permission))
     sql_statement = "UPDATE meta_data SET mode = ? WHERE key = ?"
@@ -235,7 +274,7 @@ def updatePermission(fileName, permission):
 
 
 def getPermission(fileName):
-    addDirToPath(fileName)
+    getPathForSubtree(fileName)
     try:
         mode = retrieveBLOB(fileName).getFileMode()
 
