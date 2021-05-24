@@ -1,8 +1,8 @@
-import time
-from sqlite3 import IntegrityError
 
 import pyrqlite.dbapi2 as db
 import logging
+
+from fileManager import sqlInitRoot, createTables
 
 
 class DBConnect:
@@ -16,34 +16,38 @@ class DBConnect:
 
         except db.Error as error:
             logging.error('Failed connection \n {}'.format(error))
+    # def __init__(self,port):
+    #     try:
+    #         self.connection = sqlite3.connect('/home/ioana/PycharmProjects/dbconection/filesys.sqlite')
+    #         # self.connection = sqlite3.connect('../filesystem/filesys.sqlite')
+    #         logging.info('Msql connected')
+    #
+    #     except sqlite3.Error as error:
+    #         logging.error('Failed connection \n {}'.format(error))
 
+    def init_tables(self):
         try:
-            with self.connection.cursor() as cursor:
-                cursor.execute(
-                    'CREATE TABLE meta_data(key text,type text,inode integer,uid integer,gid integer,mode integer,' +
-                    'acl text,attribute text,atime integer,mtime integer,ctime integer,size integer,' +
-                    'block_size integer,primary key (key),unique(key));')
-                cursor.execute(
-                    'CREATE TABLE value_data (key text,block_no integer,data_block blob,unique(key, block_no));')
-                cursor.execute('create index meta_index on meta_data (key);' +
-                               'create index value_index on value_data (key, block_no);')
-
-        except :
+            createTables()
+            self.commit()
+        except:
             logging.error('database already exists')
-        logging.info('Msql connected')
+
         try:
-            sql_statement = "INSERT INTO meta_data (key,type,inode,uid,gid,mode,acl,attribute,atime,mtime,ctime,size,block_size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            insert_blob_tuple = (
-            '/', 'dir', 0, 0, 0, 16832, None, None, time.time(), time.time(), time.time(), 0, 131072)
-            cursor.execute(sql_statement, insert_blob_tuple)
+            sqlInitRoot()
+            self.commit()
         except:
             logging.error("root directory already exists")
+
     def getDB(self):
         return self.connection.cursor()
+
+    def getConnection(self):
+        return self.connection
 
     def __del__(self):
         self.connection.close()
         logging.info('Msql connection is closed')
 
     def commit(self):
+        logging.info("commited changes")
         self.connection.commit()

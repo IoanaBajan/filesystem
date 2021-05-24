@@ -1,42 +1,32 @@
-import logging
+import subprocess
+from threading import Thread
 
 import globals
-from userCommands import mkdir, rm, ls, cat, create, mv_file, cd, addFile, chmod, getPermissions
 
+from multiprocessing import Process
+from DBManager.DBConnection import DBConnect
+from fuse import FUSE
+from userCommands import MySQLFS
 
-def main():
-    globals.initialize()
-    while True:
-        command = input('enter command\n')
-
-        if command.__contains__('ls'):
-            ls(command)
-        elif command.__contains__('touch '):
-            create(command)
-        elif command.__contains__('cat '):
-            cat(command)
-        elif command.__contains__('mv '):
-            mv_file(command)
-        elif command.__contains__('rm '):
-            rm(command)
-        elif command.__contains__('rmdir '):
-            rm(command)
-        elif command.__contains__('mkdir '):
-            mkdir(command)
-        elif command.__contains__('add '):
-            addFile(command)
-        elif command.__contains__('cd '):
-            cd(command)
-        elif command.__contains__('chmod '):
-            chmod(command)
-        elif command.__contains__('permissions '):
-            getPermissions(command)
-        elif command.__contains__('history'):
-            print(globals.history)
-        elif command.__contains__('pwd'):
-            print(globals.current_dir)
-        else:
-            logging.error('not a valid choice')
-            globals.history = globals.history.append({'failure': command, 'success': '-'}, ignore_index=True)
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('mount')
+    args = parser.parse_args()
+
+    globals.initialize()
+    port = int(input('enter port'))
+    port2 = str(port)
+    node = str(input('enter node number'))
+
+    # process = Thread(target=subprocess.call, args=(('./rqlite.sh', node,port2),))
+    # process.start()
+    connection = DBConnect(port)
+    cursor = connection.getDB()
+    globals.cursor = cursor
+    globals.connection = connection.getConnection()
+    connection.init_tables()
+
+    FUSE(MySQLFS(), args.mount, nothreads=True,foreground=True, allow_other=True)
+    # process.join()
+

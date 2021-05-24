@@ -11,3 +11,6 @@ def initialize():
     logging.basicConfig(format='%(asctime)s -%(levelname)s - %(message)s ', datefmt='%d-%b-%y %H:%M:%S')
     logging.root.setLevel(logging.DEBUG)
     global cursor
+    global connection
+    global port
+    port =4001
