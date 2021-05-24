@@ -17,7 +17,7 @@ from fileManager import createDir, deleteBLOB, retrieveBLOB, createBlob, \
 globals.initialize()
 
 
-class MySQLFS(Operations):
+class SQLFS(Operations):
     def __init__(self):
         for attribute in self.__dict__:
             value = getattr(self, attribute)

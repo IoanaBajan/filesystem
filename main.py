@@ -6,7 +6,7 @@ import globals
 from multiprocessing import Process
 from DBManager.DBConnection import DBConnect
 from fuse import FUSE
-from userCommands import MySQLFS
+from sqlfs import SQLFS
 
 if __name__ == "__main__":
     import argparse
@@ -27,6 +27,6 @@ if __name__ == "__main__":
     globals.connection = connection.getConnection()
     connection.init_tables()
 
-    FUSE(MySQLFS(), args.mount, nothreads=True,foreground=True, allow_other=True)
+    FUSE(SQLFS(), args.mount, nothreads=True,foreground=True, allow_other=True)
     # process.join()
 
