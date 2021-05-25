@@ -1,4 +1,3 @@
-
 import pyrqlite.dbapi2 as db
 import logging
 
@@ -16,14 +15,6 @@ class DBConnect:
 
         except db.Error as error:
             logging.error('Failed connection \n {}'.format(error))
-    # def __init__(self,port):
-    #     try:
-    #         self.connection = sqlite3.connect('/home/ioana/PycharmProjects/dbconection/filesys.sqlite')
-    #         # self.connection = sqlite3.connect('../filesystem/filesys.sqlite')
-    #         logging.info('Msql connected')
-    #
-    #     except sqlite3.Error as error:
-    #         logging.error('Failed connection \n {}'.format(error))
 
     def init_tables(self):
         try:

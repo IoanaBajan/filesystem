@@ -24,12 +24,6 @@ def uniqueid():
         seed += 1
 
 
-def convertToBinaryData(filename):
-    with open(filename, 'rb') as file:
-        binaryData = file.read()
-    return binaryData
-
-
 def createTables():
     logging.info("creating tables")
     cursor = globals.cursor
@@ -59,10 +53,9 @@ def createBlob(fileName, input):
     logging.info("in createblob - file " + fileName)
 
     cursor = globals.cursor
-    filePath = fullPath(fileName)
 
     sql_statement = "INSERT INTO value_data(key, block_no, data_block) VALUES(?,?,?)"
-    insert_blob_tuple = (filePath, 0, str(input))
+    insert_blob_tuple = (fileName, 0, str(input))
     cursor.execute(sql_statement, insert_blob_tuple)
 
     id = next(uniqueid())
@@ -72,7 +65,7 @@ def createBlob(fileName, input):
     permissions = permissions | 32768
     uid = fuse.fuse_get_context()[0]
     gid = fuse.fuse_get_context()[1]
-    insert_blob_tuple = (filePath, 'blob', id, uid, gid, permissions, None, None, time.time(),
+    insert_blob_tuple = (fileName, 'blob', id, uid, gid, permissions, None, None, time.time(),
                          time.time(), time.time(),
                          len(input), BLOCK_SIZE)
     cursor.execute(sql_statement, insert_blob_tuple)
@@ -104,23 +97,22 @@ def createSymlink(target,source):
 def editFile(fileName, input, size):
     logging.info("in editfile - input " + str(input))
     cursor = globals.cursor
-    filePath = fullPath(fileName)
     input = bytes(input)
     nr_blocks = round(size / BLOCK_SIZE) + 1
-    print("no of blocks" + str(nr_blocks))
+    logging.info("no of blocks" + str(nr_blocks))
     sql_statement1 = "UPDATE value_data SET data_block =? WHERE key = ? and block_no=?"
     sql_statement2 = "INSERT or Ignore into value_data (key,block_no) VALUES (?,?)"
     for i in range(0, nr_blocks):
-        insert_tuple = (filePath, i)
+        insert_tuple = (fileName, i)
         cursor.execute(sql_statement2, insert_tuple)
         globals.connection.commit()
         data_block = input[i * BLOCK_SIZE:(i + 1) * BLOCK_SIZE]
-        update_tuple = (data_block, filePath, i)
+        update_tuple = (data_block, fileName, i)
         cursor.execute(sql_statement1, update_tuple)
         globals.connection.commit()
 
     sql_statement = "UPDATE meta_data SET size = ?, mtime=?, atime=? WHERE key = ?"
-    update_blob_tuple = (size, time.time(), time.time(), filePath)
+    update_blob_tuple = (size, time.time(), time.time(), fileName)
     cursor.execute(sql_statement, update_blob_tuple)
 
     return id
@@ -129,15 +121,13 @@ def editFile(fileName, input, size):
 def deleteBLOB(fileName):
     cursor = globals.cursor
 
-    # fileName = getPathForSubtree(fileName)
-    file_swp = '/.'+fileName[1:]+'.swp'
+    file_swp = '.'+fileName[1:]+'.swp'
     sql_statement = 'DELETE FROM meta_data WHERE key = ?'
     cursor.execute(sql_statement, (fileName,))
     cursor.execute(sql_statement, (file_swp,))
 
     sql_statement = 'DELETE FROM value_data WHERE key = ?'
     logging.info('deleted file ' + fileName)
-    logging.info('deleted file ' + file_swp)
     cursor.execute(sql_statement, (fileName,))
     cursor.execute(sql_statement, (file_swp,))
 
@@ -169,7 +159,6 @@ def retrieveBLOB(fileName):
                 pass
             data += bytes(data_block)
 
-
         file.setData_block(data)
     return file
 
@@ -178,30 +167,26 @@ def createDir(dirName):
     cursor = globals.cursor
 
     id = next(uniqueid())
-    logging.info('in createDir - id for file ' + dirName + 'is ' + str(id))
-
-    path = fullPath(dirName)
 
     sql_statement = "INSERT INTO meta_data (key,type,inode,uid,gid,mode,acl,attribute,atime,mtime,ctime,size,block_size) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
     permissions = stat.S_IFDIR | stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
     uid = fuse.fuse_get_context()[0]
     gid = fuse.fuse_get_context()[1]
-    insert_blob_tuple = (path, 'dir', id, uid, gid, permissions, None, None, time.time(),
+    insert_blob_tuple = (dirName, 'dir', id, uid, gid, permissions, None, None, time.time(),
                          time.time(), time.time(),
                          0, BLOCK_SIZE)
-    logging.info('in createDir - inserting dir in table')
+    logging.info('in createDir - inserting dir in table ' + dirName)
     cursor.execute(sql_statement, insert_blob_tuple)
 
 
 def update_entry_fileName(filename, new_filename):
     logging.info('in update_entry_filename - to ' + new_filename)
     cursor = globals.cursor
-    filename = getPathForSubtree(filename)
 
     try:
         old_file = retrieveBLOB(filename)
     except:
-        logging.error("could not find the file you want to rename")
+        logging.error("could not find the file to rename " + filename)
         return
 
     sql_statement = "UPDATE meta_data SET key = ?, mtime=? WHERE key = ?"
@@ -244,22 +229,19 @@ def showFileData(target_dir):
     else:
         target_dir = target_dir + "%"
 
-    logging.info("showing all files from " + target_dir)
     cursor.execute(sql_statement, (target_dir,))
     files = []
     for key, type, inode, uid, gid, mode, atime, mtime, ctime, size, block_size in cursor.fetchall():
         size = len(target_dir.split('/'))
         if len(key.split('/')) == size:
             time = datetime.datetime.fromtimestamp(ctime).strftime("%d %B %I:%M")
-            RetrievedFile = File(key, type, inode, uid, gid, mode, time, mtime, ctime, size, block_size, " ")
-            files.append(RetrievedFile)
+            file = File(key, type, inode, uid, gid, mode, time, mtime, ctime, size, block_size, " ")
+            files.append(file)
     return files
 
 
 def keyAccessed(fileName):
     cursor = globals.cursor
-
-    fileName = getPathForSubtree(fileName)
 
     sql_statement = "UPDATE meta_data SET atime = ? WHERE key = ?"
     update_blob_tuple = (time.time(), fileName)
@@ -267,60 +249,18 @@ def keyAccessed(fileName):
 
 
 def verifySubtree(fileName):
-    fileName = getPathForSubtree(fileName)
-    logging.info("in verifySubtree filename= " + fileName)
+    logging.info("in verifySubtree - filename= " + fileName)
     cursor = globals.cursor
     fileName += '/%'
-    logging.info('searching file with name ' + fileName)
     sql_statement1 = "SELECT key, type, uid, gid,mode, ctime FROM meta_data WHERE key LIKE ?"
     cursor.execute(sql_statement1, (fileName,))
-    nr = 0
-    # nr = cursor.rowcount
-    for key in cursor:
-        nr += 1
+    nr = cursor.rowcount
     logging.info("number of files in directory " + str(nr))
     return nr
 
 
-def getPathForSubtree(fileName):
-    """
-    Return full path of given file, adding the current directory's path.
-
-    If the path does not exist, returns the filepath it was given.
-    Adds slash at the beginning, removes the one at the end for consistency (it's also the way paths are stored in db)
-    """
-
-    if fileName[0] != '/':
-        fileName = '/' + fileName
-    if not fileName.__contains__(globals.current_dir):
-        if globals.current_dir[-1] == '/' or fileName[0] == '/':
-            file = globals.current_dir + fileName
-        else:
-            file = globals.current_dir + '/' + fileName
-
-        if retrieveBLOB(file) is not None:
-            fileName = file
-
-    if len(fileName) != 1 and fileName[-1] == '/':
-        fileName = fileName[:-1]
-    return fileName
-
-
-def fullPath(fileName):
-    if fileName[0] != '/':
-        fileName = '/' + fileName
-    if not fileName.__contains__(globals.current_dir):
-        if globals.current_dir[-1] == '/' or fileName[0] == '/':
-            fileName = globals.current_dir + fileName
-        else:
-            fileName = globals.current_dir + '/' + fileName
-    # logging.debug("in fullPath - path of the new file: " + fileName)
-    return fileName
-
-
 def updatePermission(fileName, permission):
     cursor = globals.cursor
-    fileName = getPathForSubtree(fileName)
 
     sql_statement = "UPDATE meta_data SET mode = ? WHERE key = ?"
     update_blob_tuple = (permission, fileName)
@@ -329,7 +269,6 @@ def updatePermission(fileName, permission):
 
 def updateUSER(fileName, uid, gid):
     cursor = globals.cursor
-    fileName = getPathForSubtree(fileName)
 
     sql_statement = "UPDATE meta_data SET uid = ?,gid = ? WHERE key = ?"
     update_blob_tuple = (uid, gid, fileName)
@@ -338,14 +277,12 @@ def updateUSER(fileName, uid, gid):
 
 def updateTime(path, atime, mtime):
     cursor = globals.cursor
-    filePath = getPathForSubtree(path)
     sql_statement = "UPDATE meta_data SET atime = ?, mtime = ? WHERE key = ?"
-    update_blob_tuple = (atime, mtime, filePath)
+    update_blob_tuple = (atime, mtime, path)
     cursor.execute(sql_statement, update_blob_tuple)
 
 
 def getPermission(fileName):
-    fileName = getPathForSubtree(fileName)
     try:
         file = retrieveBLOB(fileName)
         permission = file.getFileMode()

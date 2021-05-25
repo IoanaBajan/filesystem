@@ -10,9 +10,8 @@ from fuse import Operations, FuseOSError
 
 import globals
 from fileManager import createDir, deleteBLOB, retrieveBLOB, createBlob, \
-    update_entry_fileName, showFileData, verifySubtree, keyAccessed, updatePermission, getPermission, getPathForSubtree\
-    , editFile, updateTime, updateUSER, createSymlink
-
+    update_entry_fileName, showFileData, verifySubtree, keyAccessed, updatePermission, getPermission, \
+    editFile, updateTime, updateUSER, createSymlink
 
 globals.initialize()
 
@@ -55,9 +54,11 @@ class SQLFS(Operations):
         logging.info("in access - mode uid gid " + str(amode) + " " + str(uid) + " " + str(gid))
         logging.info("in access - sqlmode sqluid sqlgid " + str(sql_mode) + " " + str(sql_uid) + " " + str(sql_gid))
 
+        if sql_uid == -1 or sql_uid == -1:
+            raise FuseOSError(errno.ENOENT)
+
         access = 0
-        if uid == 0:
-            access = 0
+
 
         if sql_uid == uid:
             if ((amode & os.R_OK) and not (stat.S_IRUSR & sql_mode)) or (
@@ -75,8 +76,11 @@ class SQLFS(Operations):
                     (amode & os.W_OK) and not (stat.S_IWOTH & sql_mode)) or (
                     (amode & os.X_OK) and not (stat.S_IXOTH & sql_mode)):
                 access = -errno.EACCES
-        return access
 
+        if uid == 0:
+            access = 0
+
+        return access
 
     def opendir(self, path):
         logging.info("in opendir - accessing directory" + path)
@@ -136,6 +140,7 @@ class SQLFS(Operations):
             globals.connection.commit()
         else:
             logging.error("in rmdir - directory is not empty")
+            raise FuseOSError(errno.ENOTEMPTY)
 
     def create(self, path, mode, fi=None):
         self.current_dir(path)
@@ -146,7 +151,7 @@ class SQLFS(Operations):
             logging.error("in create - a file with the same name already exists")
             raise FuseOSError(errno.EEXIST)
         else:
-            id = createBlob(fileName=path, input=" ")
+            id = createBlob(fileName=path, input="")
 
             globals.connection.commit()
             logging.info("in create - file with path " + path + " created ")
@@ -265,8 +270,8 @@ class SQLFS(Operations):
         if self.access(new, os.W_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
 
-        filename = getPathForSubtree(new)
-        logging.info("in rename - new file " + filename)
+        # filename = getPathForSubtree(new)
+        logging.info("in rename - new file " + new)
         update_entry_fileName(old, new)
         globals.connection.commit()
 
@@ -330,6 +335,7 @@ class SQLFS(Operations):
 
     def flush(self, path, fh):
         globals.connection.commit()
+
     def setxattr(self, path, name, value, options, position=0):
         raise FuseOSError(errno.ENOTSUP)
 
