@@ -9,8 +9,9 @@ def initialize():
     global history
     history = pd.DataFrame(columns=['success', 'failure'])
     logging.basicConfig(format='%(asctime)s -%(levelname)s - %(message)s ', datefmt='%d-%b-%y %H:%M:%S')
-    logging.root.setLevel(logging.DEBUG)
+    logging.root.setLevel(logging.ERROR)
+    logging.disable(logging.CRITICAL)
     global cursor
     global connection
     global port
-    port =4001
+    port = 4001

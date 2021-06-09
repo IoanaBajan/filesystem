@@ -1,5 +1,5 @@
 class File:
-    def __init__(self, key, type, inode,uid, gid, mode, atime, mtime, ctime,size,block_size, data_block):
+    def __init__(self, key, type, inode, uid, gid, mode, atime, mtime, ctime, size, block_size, data_block):
         self.key = key
         self.type = type
         self.uid = uid
@@ -12,11 +12,13 @@ class File:
         self.block_size = block_size
         self.data_block = data_block
         self.inode = inode
+
     def getFilePath(self):
         return self.key
 
     def getFileType(self):
         return self.type
+
     def getFileInode(self):
         return self.inode
 
@@ -40,6 +42,7 @@ class File:
 
     def getSize(self):
         return self.size
+
     def getBlockSize(self):
         return self.block_size
 
@@ -50,4 +53,4 @@ class File:
         self.data_block = data_block
 
     def getFile(self):
-        return self.inode,self.key,self.size, self.data_block
+        return self.inode, self.key, self.size, self.data_block

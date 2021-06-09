@@ -1,3 +1,4 @@
+import base64
 import errno
 import logging
 import os
@@ -10,8 +11,8 @@ from fuse import Operations, FuseOSError
 
 import globals
 from fileManager import createDir, deleteBLOB, retrieveBLOB, createBlob, \
-    update_entry_fileName, showFileData, verifySubtree, keyAccessed, updatePermission, getPermission, \
-    editFile, updateTime, updateUSER, createSymlink
+    update_entry_fileName, showFileData, verifySubtree, updatePermission, getPermission, \
+    editFile, updateTime, updateUSER, createSymlink, setSize, BLOCK_SIZE, getBlobId, getBlobSize
 
 globals.initialize()
 
@@ -36,7 +37,7 @@ class SQLFS(Operations):
                 st_blksize=file.getBlockSize(),
                 st_size=file.getSize())
 
-            if file.getFileType() == 'dir':
+            if file.getFileType() == 'dir' or file.getFileType() == "sym link":
                 attr['st_nlink'] = 1
             else:
                 attr['st_nlink'] = 2
@@ -55,10 +56,11 @@ class SQLFS(Operations):
         logging.info("in access - sqlmode sqluid sqlgid " + str(sql_mode) + " " + str(sql_uid) + " " + str(sql_gid))
 
         if sql_uid == -1 or sql_uid == -1:
-            raise FuseOSError(errno.ENOENT)
+            raise FuseOSError(errno.EACCES)
 
         access = 0
-
+        if uid == 0:
+            access = 0
 
         if sql_uid == uid:
             if ((amode & os.R_OK) and not (stat.S_IRUSR & sql_mode)) or (
@@ -77,9 +79,6 @@ class SQLFS(Operations):
                     (amode & os.X_OK) and not (stat.S_IXOTH & sql_mode)):
                 access = -errno.EACCES
 
-        if uid == 0:
-            access = 0
-
         return access
 
     def opendir(self, path):
@@ -87,11 +86,11 @@ class SQLFS(Operations):
         if self.access(path, os.R_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
         try:
-            file = retrieveBLOB(path)
+            type,id = getBlobId(path)
 
-            if file.getFileType() == dir:
-                globals.current_dir = file.getFilePath()
-                return file.inode
+            if type == dir:
+                globals.current_dir = path
+                return id
         except:
             logging.error("in open - could not find directory " + path)
             raise FuseOSError(errno.ENOENT)
@@ -101,8 +100,7 @@ class SQLFS(Operations):
         logging.info("in readdir - called ls ")
         dirents = ['.', '..']
         self.current_dir(path)
-        if self.access(globals.current_dir, os.X_OK) != 0:
-            raise FuseOSError(errno.EACCES)
+
         if self.access(globals.current_dir, os.R_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
         try:
@@ -123,8 +121,8 @@ class SQLFS(Operations):
         if self.access(globals.current_dir, os.W_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
 
-        directory = retrieveBLOB(path)
-        if directory:
+        type, id = getBlobId(path)
+        if id:
             logging.error("in mkdir - a file with the same name already exists")
             raise FuseOSError(errno.EEXIST)
 
@@ -133,7 +131,7 @@ class SQLFS(Operations):
 
     def rmdir(self, path):
         self.current_dir(path)
-        if self.access(globals.current_dir, os.W_OK | os.X_OK) != 0:
+        if self.access(path, os.W_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
         if verifySubtree(path) < 1:
             deleteBLOB(fileName=path)
@@ -143,11 +141,12 @@ class SQLFS(Operations):
             raise FuseOSError(errno.ENOTEMPTY)
 
     def create(self, path, mode, fi=None):
+        logging.info("in create - " + path)
         self.current_dir(path)
         if self.access(globals.current_dir, os.W_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
-
-        if retrieveBLOB(path):
+        type,id = getBlobId(path)
+        if id:
             logging.error("in create - a file with the same name already exists")
             raise FuseOSError(errno.EEXIST)
         else:
@@ -161,7 +160,7 @@ class SQLFS(Operations):
         logging.info("in unlink - file with path " + path + " deleted ")
 
         self.current_dir(path)
-        if self.access(globals.current_dir, os.W_OK | os.X_OK) != 0:
+        if self.access(path, os.W_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
         deleteBLOB(fileName=path)
         globals.connection.commit()
@@ -176,10 +175,11 @@ class SQLFS(Operations):
         if flags & 0x0400:
             self.truncate(path, 0)
         try:
-            file = retrieveBLOB(path)
-            keyAccessed(path)
+            type, id = getBlobId(path)
+            updateTime(path)
             globals.connection.commit()
-            return file.getFileInode()
+            if type == 'blob':
+                return id
 
         except:
             logging.error("in open - could not find file " + path)
@@ -197,12 +197,11 @@ class SQLFS(Operations):
         try:
             file = retrieveBLOB(path)
             id, name, sz, filedata = file.getFile()
-            keyAccessed(path)
+            updateTime(path)
             if not filedata:
                 return bytes()
             length = min(sz, offset + size)
-            logging.info(str(filedata[offset:min(sz, offset + size)]))
-            return filedata[offset:length]
+            return filedata
         except:
             logging.error("in read - could not find file " + path)
             raise FuseOSError(errno.ENOENT)
@@ -219,19 +218,14 @@ class SQLFS(Operations):
         file = retrieveBLOB(path)
         if file is not None:
             id, name, size, filedata = file.getFile()
-            logging.info("file data " + str(filedata))
 
             if not filedata:
                 filedata = bytes()
 
-            buffer = bytearray()
-            buffer[:offset] = filedata[:offset]
-            buffer[offset:(offset + len(data))] = data
+            sql_data_block = filedata[offset:BLOCK_SIZE]
 
-            if len(filedata) < offset + len(data):
-                buffer[offset + len(data):] = filedata[offset + len(data):]
-
-            editFile(path, buffer, len(buffer))
+            if sql_data_block != data or len(data) < len(sql_data_block):
+                editFile(path, data, offset)
             globals.connection.commit()
 
         else:
@@ -249,46 +243,57 @@ class SQLFS(Operations):
             raise FuseOSError(errno.EACCES)
 
         try:
-            file = retrieveBLOB(path)
-            id, name, size, filedata = file.getFile()
-
-            if filedata != '':
-                filedata = filedata[:length]
-
-            else:
-                filedata = bytes()
-
-            editFile(path, filedata, length)
+            size = getBlobSize(path)
+            setSize(length, path, size)
             globals.connection.commit()
 
         except:
             logging.error("in truncate - could not find file")
 
     def rename(self, old, new):
+        moveto = self.current_dir(new)
         if self.access(old, os.W_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
-        if self.access(new, os.W_OK | os.X_OK) != 0:
+        if self.access(moveto, os.W_OK | os.X_OK) != 0:
             raise FuseOSError(errno.EACCES)
-
-        # filename = getPathForSubtree(new)
         logging.info("in rename - new file " + new)
         update_entry_fileName(old, new)
         globals.connection.commit()
 
     def chmod(self, path, mode):
         logging.info('in chmod ' + str(mode))
-        updatePermission(path, mode)
-        globals.connection.commit()
+        uid = fuse.fuse_get_context()[0]
+        gid = fuse.fuse_get_context()[1]
+        permission, sql_uid, sql_gid = getPermission(path)
+        try:
+            if sql_uid == uid and sql_gid == gid:
+                updatePermission(path, mode)
+                updateTime(path)
+                globals.connection.commit()
+            else:
+                logging.info("Operation not permitted")
+                raise FuseOSError(errno.EACCES)
+        except:
+            logging.error("could not find file")
+            raise FuseOSError(errno.EACCES)
 
     def chown(self, path, uid, gid):
         logging.info("in chown - new uid " + str(uid) + " for " + path)
-        self.current_dir(path)
+        uid = fuse.fuse_get_context()[0]
+        gid = fuse.fuse_get_context()[1]
+        permission, sql_uid, sql_gid = getPermission(path)
+        try:
+            if sql_uid == uid and sql_gid == gid:
+                updateUSER(path, uid, gid)
+                updateTime(path)
+                globals.connection.commit()
+            else:
+                logging.info("Operation not permitted")
+                raise FuseOSError(errno.EACCES)
 
-        if self.access(globals.current_dir, os.X_OK) != 0:
+        except:
+            logging.error("could not find file")
             raise FuseOSError(errno.EACCES)
-        print(uid)
-        updateUSER(path, uid, gid)
-        globals.connection.commit()
 
     def utimens(self, path, times=None):
         if times is None:
@@ -299,26 +304,20 @@ class SQLFS(Operations):
     def symlink(self, target, source):
         logging.info("in symlink")
         self.current_dir(target)
-        if self.access(globals.current_dir, os.W_OK | os.X_OK) != 0:
-            raise FuseOSError(errno.EACCES)
-        if retrieveBLOB(target) is not None:
-            logging.error("in symlink - a file with the same name already exists")
-            raise FuseOSError(errno.EEXIST)
 
         createSymlink(target, source)
+        globals.connection.commit()
 
-    def readlink(self, path, buf, bufsize):
-        logging.info("in link")
-        if self.access(path, os.R_OK) != 0:
-            raise FuseOSError(errno.EACCES)
+    def readlink(self, path):
+        logging.info("in readlink" + path)
         file = retrieveBLOB(path)
         if not file:
             logging.error("could not find file")
             raise FuseOSError(errno.ENOENT)
-        if bufsize < file.getSize():
-            return -1
+
         buf = file.getFileData()
-        return 0
+        buf = buf.decode("utf-8")
+        return buf
 
     def current_dir(self, path):
         dir = path.split('/')
@@ -328,6 +327,7 @@ class SQLFS(Operations):
         if globals.current_dir == '':
             globals.current_dir = '/'
         logging.info("CURRENT DIRECTORY " + globals.current_dir)
+        return globals.current_dir
 
     def fsync(self, path, datasync, fh):
         logging.info("in fsync")

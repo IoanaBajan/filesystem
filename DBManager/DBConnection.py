@@ -1,7 +1,8 @@
 import pyrqlite.dbapi2 as db
+
 import logging
 
-from fileManager import sqlInitRoot, createTables
+from fileManager import createTables, sqlInitRoot
 
 
 class DBConnect:
@@ -10,7 +11,7 @@ class DBConnect:
         try:
             self.connection = db.connect(
                 host='localhost',
-                port=port,
+                port=port
             )
 
         except db.Error as error:
